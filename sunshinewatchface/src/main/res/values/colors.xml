@@ -3,4 +3,5 @@
     <color name="background">#1ca8f4</color>
     <color name="digital_text">#ffffff</color>
     <color name="text_secondary">#bbe5fb</color>
+    <color name="line_color">#60c2f7</color>
 </resources>

@@ -26,6 +26,8 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -36,6 +38,8 @@ import android.view.SurfaceHolder;
 import android.view.WindowInsets;
 
 import java.lang.ref.WeakReference;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
@@ -77,12 +81,20 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
         Paint mBackgroundPaint;
         Paint mTextPaint;
+        Paint mTextSecondaryPaint;
+        Paint mLinePaint;
 
         boolean mAmbient;
         Time mTime;
 
         float mXOffset;
         float mYOffset;
+
+        float mDateXOffset;
+        float mDateYOffset;
+
+        float mLineLength;
+        float mLineY;
 
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
@@ -102,13 +114,24 @@ public class MyWatchFace extends CanvasWatchFaceService {
             Resources resources = MyWatchFace.this.getResources();
             mYOffset = resources.getDimension(R.dimen.digital_y_offset);
 
+            mDateYOffset = resources.getDimension(R.dimen.date_y_offset);
+
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(resources.getColor(R.color.background));
 
             mTextPaint = new Paint();
             mTextPaint = createTextPaint(resources.getColor(R.color.digital_text));
 
+            mTextSecondaryPaint = new Paint();
+            mTextSecondaryPaint = createTextPaint(resources.getColor(R.color.text_secondary));
+
+            mLinePaint = new Paint();
+            mLinePaint.setColor(resources.getColor(R.color.line_color));
+
             mTime = new Time();
+
+            mLineLength = resources.getDimension(R.dimen.line_length);
+            mLineY = resources.getDimension(R.dimen.line_y);
         }
 
         @Override
@@ -170,10 +193,18 @@ public class MyWatchFace extends CanvasWatchFaceService {
             boolean isRound = insets.isRound();
             mXOffset = resources.getDimension(isRound
                     ? R.dimen.digital_x_offset_round : R.dimen.digital_x_offset);
+
+            mDateXOffset = resources.getDimension(isRound
+                    ? R.dimen.date_x_offset_round : R.dimen.date_x_offset);
+
             float textSize = resources.getDimension(isRound
                     ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
 
+            float secondaryTextSize = resources.getDimension(isRound
+                    ? R.dimen.secondary_text_size_round : R.dimen.secondary_text_size);
+
             mTextPaint.setTextSize(textSize);
+            mTextSecondaryPaint.setTextSize(secondaryTextSize);
         }
 
         @Override
@@ -213,13 +244,25 @@ public class MyWatchFace extends CanvasWatchFaceService {
                 canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
             }
 
+            float halfCanvasWidth = canvas.getWidth()/2;
+
             // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
             mTime.setToNow();
             //String text = mAmbient
             //        ? String.format("%d:%02d", mTime.hour, mTime.minute)
             //        : String.format("%d:%02d:%02d", mTime.hour, mTime.minute, mTime.second);
             String text = String.format("%d:%02d", mTime.hour, mTime.minute);
-            canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
+            float timeX = (canvas.getWidth() / 2) - (mTextPaint.measureText(text)/2);
+            canvas.drawText(text, timeX, mYOffset, mTextPaint);
+
+            //TODO: move out of onDraw
+            SimpleDateFormat dateFormat = new SimpleDateFormat("EEE, MMM dd yyyy");
+            String date = dateFormat.format(new Date());
+
+            float dateX = halfCanvasWidth - (mTextSecondaryPaint.measureText(date)/2);
+            canvas.drawText(date, dateX, mDateYOffset, mTextSecondaryPaint);
+
+            canvas.drawLine((halfCanvasWidth - (mLineLength/2)), mLineY, (halfCanvasWidth + mLineLength/2), mLineY, mLinePaint);
         }
 
         /**
@@ -272,6 +315,29 @@ public class MyWatchFace extends CanvasWatchFaceService {
                         break;
                 }
             }
+        }
+    }
+
+    private class LoadWeatherTask extends AsyncTask<Void, Void, Integer> {
+        @Override
+        protected Integer doInBackground(Void... voids) {
+            long begin = System.currentTimeMillis();
+            Uri.Builder builder =
+                    WearableCalendarContract.Instances.CONTENT_URI.buildUpon();
+            ContentUris.appendId(builder, begin);
+            ContentUris.appendId(builder, begin + DateUtils.DAY_IN_MILLIS);
+            final Cursor cursor = getContentResolver().query(builder.build(),
+                    null, null, null, null);
+            int numMeetings = cursor.getCount();
+            if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                Log.v(TAG, "Num meetings: " + numMeetings);
+            }
+            return numMeetings;
+        }
+
+        @Override
+        protected void onPostExecute(Integer result) {
+            onMeetingsLoaded(result);
         }
     }
 }
