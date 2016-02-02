@@ -318,6 +318,7 @@ public class MyWatchFace extends CanvasWatchFaceService {
         }
     }
 
+    /*
     private class LoadWeatherTask extends AsyncTask<Void, Void, Integer> {
         @Override
         protected Integer doInBackground(Void... voids) {
@@ -340,4 +341,5 @@ public class MyWatchFace extends CanvasWatchFaceService {
             onMeetingsLoaded(result);
         }
     }
+    */
 }
