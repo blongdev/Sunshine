@@ -14,28 +14,36 @@
  * limitations under the License.
  */
 
-package com.blongdev.sunshinewatchface;
+package com.example.android.sunshine.app;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
-import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
 import android.text.format.Time;
+import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.WindowInsets;
+
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.wearable.MessageApi;
+import com.google.android.gms.wearable.MessageEvent;
+import com.google.android.gms.wearable.Wearable;
 
 import java.lang.ref.WeakReference;
 import java.text.SimpleDateFormat;
@@ -47,7 +55,7 @@ import java.util.concurrent.TimeUnit;
  * Digital watch face with seconds. In ambient mode, the seconds aren't displayed. On devices with
  * low-bit ambient mode, the text is drawn without anti-aliasing in ambient mode.
  */
-public class MyWatchFace extends CanvasWatchFaceService {
+public class MyWatchFace extends CanvasWatchFaceService  {
     private static final Typeface NORMAL_TYPEFACE =
             Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
 
@@ -61,6 +69,15 @@ public class MyWatchFace extends CanvasWatchFaceService {
      * Handler message id for updating the time periodically in interactive mode.
      */
     private static final int MSG_UPDATE_TIME = 0;
+    MyWatchFace mMyWatchFace;
+
+    @Override
+    public void onCreate() {
+        //REMOVE THIS OR IT WILL FREEZE ON STARTUP
+        //android.os.Debug.waitForDebugger();
+
+        super.onCreate();
+    }
 
     @Override
     public Engine onCreateEngine() {
@@ -83,6 +100,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
         Paint mTextPaint;
         Paint mTextSecondaryPaint;
         Paint mLinePaint;
+        Paint mHighTempPaint;
+        Paint mLowTempPaint;
 
         boolean mAmbient;
         Time mTime;
@@ -96,11 +115,20 @@ public class MyWatchFace extends CanvasWatchFaceService {
         float mLineLength;
         float mLineY;
 
+        int mLowTemp;
+        int mHighTemp;
+        int mWeatherId;
+
+        float mTempYOffset;
+        float mLowTempXOffset;
+        float mWeatherXOffset;
+
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
          * disable anti-aliasing in ambient mode.
          */
         boolean mLowBitAmbient;
+        GoogleApiClient mGoogleApiClient;
 
         @Override
         public void onCreate(SurfaceHolder holder) {
@@ -116,6 +144,8 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
             mDateYOffset = resources.getDimension(R.dimen.date_y_offset);
 
+            mTempYOffset = resources.getDimension(R.dimen.tempYOffset);
+
             mBackgroundPaint = new Paint();
             mBackgroundPaint.setColor(resources.getColor(R.color.background));
 
@@ -128,10 +158,72 @@ public class MyWatchFace extends CanvasWatchFaceService {
             mLinePaint = new Paint();
             mLinePaint.setColor(resources.getColor(R.color.line_color));
 
+
+            mLowTempPaint = createTextPaint(resources.getColor(R.color.text_secondary));
+
+            mHighTempPaint= createTextPaint(resources.getColor(R.color.digital_text));
+
             mTime = new Time();
 
             mLineLength = resources.getDimension(R.dimen.line_length);
             mLineY = resources.getDimension(R.dimen.line_y);
+
+            mLowTemp = -1;
+            mHighTemp = -1;
+            mWeatherId = -1;
+
+            startService(new Intent(getBaseContext(), WatchListenerService.class));
+
+            LocalBroadcastManager.getInstance(getBaseContext()).registerReceiver(mReceiver,
+                    new IntentFilter("weather_data"));
+        }
+
+        private BroadcastReceiver mReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                // Get extra data included in the Intent
+                int low = intent.getIntExtra("LowTemp", 0);
+                int high = intent.getIntExtra("HighTemp", 0);
+                int weatherId = intent.getIntExtra("WeatherId", 0);
+                updateWeather(low, high, weatherId);
+            }
+        };
+
+        //teken from app/Utility.java
+        public int getIconResourceForWeatherCondition(int weatherId) {
+            // Based on weather code data found at:
+            // http://bugs.openweathermap.org/projects/api/wiki/Weather_Condition_Codes
+            if (weatherId >= 200 && weatherId <= 232) {
+                return R.drawable.ic_storm;
+            } else if (weatherId >= 300 && weatherId <= 321) {
+                return R.drawable.ic_light_rain;
+            } else if (weatherId >= 500 && weatherId <= 504) {
+                return R.drawable.ic_rain;
+            } else if (weatherId == 511) {
+                return R.drawable.ic_snow;
+            } else if (weatherId >= 520 && weatherId <= 531) {
+                return R.drawable.ic_rain;
+            } else if (weatherId >= 600 && weatherId <= 622) {
+                return R.drawable.ic_snow;
+            } else if (weatherId >= 701 && weatherId <= 761) {
+                return R.drawable.ic_fog;
+            } else if (weatherId == 761 || weatherId == 781) {
+                return R.drawable.ic_storm;
+            } else if (weatherId == 800) {
+                return R.drawable.ic_clear;
+            } else if (weatherId == 801) {
+                return R.drawable.ic_light_clouds;
+            } else if (weatherId >= 802 && weatherId <= 804) {
+                return R.drawable.ic_cloudy;
+            }
+            return -1;
+        }
+
+        private void updateWeather(int low, int high, int weather) {
+            mLowTemp = low;
+            mHighTemp = high;
+            mWeatherId = weather;
+            invalidate();
         }
 
         @Override
@@ -197,14 +289,26 @@ public class MyWatchFace extends CanvasWatchFaceService {
             mDateXOffset = resources.getDimension(isRound
                     ? R.dimen.date_x_offset_round : R.dimen.date_x_offset);
 
+            mLowTempXOffset = resources.getDimension(isRound
+                    ? R.dimen.low_temp_x_offset_round : R.dimen.low_temp_x_offset);
+
+            mWeatherXOffset = resources.getDimension(isRound
+                    ? R.dimen.weather_x_offset_round : R.dimen.weather_x_offset);
+
             float textSize = resources.getDimension(isRound
                     ? R.dimen.digital_text_size_round : R.dimen.digital_text_size);
 
             float secondaryTextSize = resources.getDimension(isRound
                     ? R.dimen.secondary_text_size_round : R.dimen.secondary_text_size);
 
+            float tempTextSize = resources.getDimension(isRound
+                    ? R.dimen.weather_text_size_round : R.dimen.weather_text_size);
+
             mTextPaint.setTextSize(textSize);
             mTextSecondaryPaint.setTextSize(secondaryTextSize);
+
+            mLowTempPaint.setTextSize(tempTextSize);
+            mHighTempPaint.setTextSize(tempTextSize);
         }
 
         @Override
@@ -248,21 +352,30 @@ public class MyWatchFace extends CanvasWatchFaceService {
 
             // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
             mTime.setToNow();
-            //String text = mAmbient
-            //        ? String.format("%d:%02d", mTime.hour, mTime.minute)
-            //        : String.format("%d:%02d:%02d", mTime.hour, mTime.minute, mTime.second);
+
             String text = String.format("%d:%02d", mTime.hour, mTime.minute);
             float timeX = (canvas.getWidth() / 2) - (mTextPaint.measureText(text)/2);
             canvas.drawText(text, timeX, mYOffset, mTextPaint);
 
-            //TODO: move out of onDraw
             SimpleDateFormat dateFormat = new SimpleDateFormat("EEE, MMM dd yyyy");
             String date = dateFormat.format(new Date());
 
             float dateX = halfCanvasWidth - (mTextSecondaryPaint.measureText(date)/2);
             canvas.drawText(date, dateX, mDateYOffset, mTextSecondaryPaint);
 
-            canvas.drawLine((halfCanvasWidth - (mLineLength/2)), mLineY, (halfCanvasWidth + mLineLength/2), mLineY, mLinePaint);
+            canvas.drawLine((halfCanvasWidth - (mLineLength / 2)), mLineY, (halfCanvasWidth + mLineLength / 2), mLineY, mLinePaint);
+
+            String highTemp = String.valueOf(mHighTemp) + '\u00B0';
+            float highTempX = halfCanvasWidth - (mHighTempPaint.measureText(highTemp)/2);
+            String lowTemp = String.valueOf(mLowTemp) + '\u00B0';
+
+            canvas.drawText(highTemp,highTempX, mTempYOffset, mHighTempPaint);
+            canvas.drawText(lowTemp, mLowTempXOffset, mTempYOffset, mLowTempPaint);
+
+            if (mWeatherId > 0) {
+                Bitmap bitmap = BitmapFactory.decodeResource(getResources(), getIconResourceForWeatherCondition(mWeatherId));
+                canvas.drawBitmap(bitmap, mWeatherXOffset, mTempYOffset - (bitmap.getHeight()/2), null);
+            }
         }
 
         /**
@@ -317,29 +430,4 @@ public class MyWatchFace extends CanvasWatchFaceService {
             }
         }
     }
-
-    /*
-    private class LoadWeatherTask extends AsyncTask<Void, Void, Integer> {
-        @Override
-        protected Integer doInBackground(Void... voids) {
-            long begin = System.currentTimeMillis();
-            Uri.Builder builder =
-                    WearableCalendarContract.Instances.CONTENT_URI.buildUpon();
-            ContentUris.appendId(builder, begin);
-            ContentUris.appendId(builder, begin + DateUtils.DAY_IN_MILLIS);
-            final Cursor cursor = getContentResolver().query(builder.build(),
-                    null, null, null, null);
-            int numMeetings = cursor.getCount();
-            if (Log.isLoggable(TAG, Log.VERBOSE)) {
-                Log.v(TAG, "Num meetings: " + numMeetings);
-            }
-            return numMeetings;
-        }
-
-        @Override
-        protected void onPostExecute(Integer result) {
-            onMeetingsLoaded(result);
-        }
-    }
-    */
 }
