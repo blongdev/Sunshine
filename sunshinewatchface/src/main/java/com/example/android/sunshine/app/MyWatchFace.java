@@ -17,10 +17,12 @@
 package com.example.android.sunshine.app;
 
 import android.content.BroadcastReceiver;
+import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Resources;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -28,12 +30,16 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.support.v4.content.LocalBroadcastManager;
+import android.support.wearable.provider.WearableCalendarContract;
 import android.support.wearable.watchface.CanvasWatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
+import android.text.format.DateUtils;
 import android.text.format.Time;
 import android.util.Log;
 import android.view.SurfaceHolder;
@@ -115,13 +121,15 @@ public class MyWatchFace extends CanvasWatchFaceService  {
         float mLineLength;
         float mLineY;
 
-        int mLowTemp;
-        int mHighTemp;
+        long mLowTemp;
+        long mHighTemp;
         int mWeatherId;
 
         float mTempYOffset;
         float mLowTempXOffset;
         float mWeatherXOffset;
+
+        boolean mHasWeatherData;
 
         /**
          * Whether the display supports fewer bits for each color in ambient mode. When true, we
@@ -171,6 +179,7 @@ public class MyWatchFace extends CanvasWatchFaceService  {
             mLowTemp = -1;
             mHighTemp = -1;
             mWeatherId = -1;
+            mHasWeatherData = false;
 
             startService(new Intent(getBaseContext(), WatchListenerService.class));
 
@@ -182,14 +191,15 @@ public class MyWatchFace extends CanvasWatchFaceService  {
             @Override
             public void onReceive(Context context, Intent intent) {
                 // Get extra data included in the Intent
-                int low = intent.getIntExtra("LowTemp", 0);
-                int high = intent.getIntExtra("HighTemp", 0);
+                long low = intent.getLongExtra("LowTemp", 0);
+                long high = intent.getLongExtra("HighTemp", 0);
                 int weatherId = intent.getIntExtra("WeatherId", 0);
+                mHasWeatherData = true;
                 updateWeather(low, high, weatherId);
             }
         };
 
-        //teken from app/Utility.java
+        //taken from app/Utility.java
         public int getIconResourceForWeatherCondition(int weatherId) {
             // Based on weather code data found at:
             // http://bugs.openweathermap.org/projects/api/wiki/Weather_Condition_Codes
@@ -219,7 +229,7 @@ public class MyWatchFace extends CanvasWatchFaceService  {
             return -1;
         }
 
-        private void updateWeather(int low, int high, int weather) {
+        private void updateWeather(long low, long high, int weather) {
             mLowTemp = low;
             mHighTemp = high;
             mWeatherId = weather;
@@ -330,8 +340,18 @@ public class MyWatchFace extends CanvasWatchFaceService  {
                 mAmbient = inAmbientMode;
                 if (mLowBitAmbient) {
                     mTextPaint.setAntiAlias(!inAmbientMode);
+                    mTextSecondaryPaint.setAntiAlias(!inAmbientMode);
+                    mLinePaint.setAntiAlias(!inAmbientMode);
+                    mLowTempPaint.setAntiAlias(!inAmbientMode);
+                    mHighTempPaint.setAntiAlias(!inAmbientMode);
                 }
                 invalidate();
+            }
+
+            if (inAmbientMode) {
+                mTextSecondaryPaint.setColor(getResources().getColor(R.color.white));
+            } else {
+                mTextSecondaryPaint.setColor(getResources().getColor(R.color.text_secondary));
             }
 
             // Whether the timer should be running depends on whether we're visible (as well as
@@ -348,33 +368,36 @@ public class MyWatchFace extends CanvasWatchFaceService  {
                 canvas.drawRect(0, 0, bounds.width(), bounds.height(), mBackgroundPaint);
             }
 
-            float halfCanvasWidth = canvas.getWidth()/2;
+            float halfCanvasWidth = canvas.getWidth() / 2;
 
             // Draw H:MM in ambient mode or H:MM:SS in interactive mode.
             mTime.setToNow();
 
             String text = String.format("%d:%02d", mTime.hour, mTime.minute);
-            float timeX = (canvas.getWidth() / 2) - (mTextPaint.measureText(text)/2);
+            float timeX = (canvas.getWidth() / 2) - (mTextPaint.measureText(text) / 2);
             canvas.drawText(text, timeX, mYOffset, mTextPaint);
 
             SimpleDateFormat dateFormat = new SimpleDateFormat("EEE, MMM dd yyyy");
             String date = dateFormat.format(new Date());
 
-            float dateX = halfCanvasWidth - (mTextSecondaryPaint.measureText(date)/2);
+            float dateX = halfCanvasWidth - (mTextSecondaryPaint.measureText(date) / 2);
             canvas.drawText(date, dateX, mDateYOffset, mTextSecondaryPaint);
 
-            canvas.drawLine((halfCanvasWidth - (mLineLength / 2)), mLineY, (halfCanvasWidth + mLineLength / 2), mLineY, mLinePaint);
+            if (!mAmbient) {
+                canvas.drawLine((halfCanvasWidth - (mLineLength / 2)), mLineY, (halfCanvasWidth + mLineLength / 2), mLineY, mLinePaint);
 
-            String highTemp = String.valueOf(mHighTemp) + '\u00B0';
-            float highTempX = halfCanvasWidth - (mHighTempPaint.measureText(highTemp)/2);
-            String lowTemp = String.valueOf(mLowTemp) + '\u00B0';
+                String highTemp = String.valueOf(mHighTemp) + '\u00B0';
+                float highTempX = halfCanvasWidth - (mHighTempPaint.measureText(highTemp) / 2);
+                String lowTemp = String.valueOf(mLowTemp) + '\u00B0';
 
-            canvas.drawText(highTemp,highTempX, mTempYOffset, mHighTempPaint);
-            canvas.drawText(lowTemp, mLowTempXOffset, mTempYOffset, mLowTempPaint);
+                if (mHasWeatherData) {
+                    canvas.drawText(highTemp, highTempX, mTempYOffset, mHighTempPaint);
+                    canvas.drawText(lowTemp, mLowTempXOffset, mTempYOffset, mLowTempPaint);
 
-            if (mWeatherId > 0) {
-                Bitmap bitmap = BitmapFactory.decodeResource(getResources(), getIconResourceForWeatherCondition(mWeatherId));
-                canvas.drawBitmap(bitmap, mWeatherXOffset, mTempYOffset - (bitmap.getHeight()/2), null);
+                    Bitmap bitmap = BitmapFactory.decodeResource(getResources(), getIconResourceForWeatherCondition(mWeatherId));
+                    canvas.drawBitmap(bitmap, mWeatherXOffset, mTempYOffset - (bitmap.getHeight() / 2), null);
+
+                }
             }
         }
 

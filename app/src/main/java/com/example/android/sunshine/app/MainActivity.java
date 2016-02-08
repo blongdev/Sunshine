@@ -110,12 +110,6 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
         }
     }
 
-    public void onStart() {
-        super.onStart();
-        WatchSync watchSync = new WatchSync(this);
-        watchSync.connect();
-    }
-
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         // Inflate the menu; this adds items to the action bar if it is present.

@@ -9,6 +9,7 @@ import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.MessageApi;
+import com.google.android.gms.wearable.MessageEvent;
 import com.google.android.gms.wearable.Node;
 import com.google.android.gms.wearable.NodeApi;
 import com.google.android.gms.wearable.PutDataMapRequest;
@@ -19,11 +20,13 @@ import com.google.android.gms.wearable.Wearable;
 /**
  * Created by Brian on 2/3/2016.
  */
-public class WatchSync implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
-
-    private static final String COUNT_KEY = "com.example.android.sunshine.app.count";
+public class WatchSync implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, MessageApi.MessageListener {
 
     private GoogleApiClient mGoogleApiClient;
+    private long mLowTemp;
+    private long mHighTemp;
+    private int mWeatherId;
+
 
     public WatchSync(Context context) {
         mGoogleApiClient = new GoogleApiClient.Builder(context)
@@ -31,12 +34,18 @@ public class WatchSync implements GoogleApiClient.ConnectionCallbacks, GoogleApi
                 .addConnectionCallbacks(this)
                 .addOnConnectionFailedListener(this)
                 .build();
-}
+    }
 
-    public void sendWatchData(int low, int high, int weather) {
+    public void setValues(long low, long high, int weather) {
+        mLowTemp = low;
+        mHighTemp = high;
+        mWeatherId = weather;
+    }
+
+    public void sendWatchData(long low, long high, int weather) {
         PutDataMapRequest putDataMapReq = PutDataMapRequest.create("/watchData").setUrgent();
-        putDataMapReq.getDataMap().putInt("LowTemp", low);
-        putDataMapReq.getDataMap().putInt("HighTemp", high);
+        putDataMapReq.getDataMap().putLong("LowTemp", low);
+        putDataMapReq.getDataMap().putLong("HighTemp", high);
         putDataMapReq.getDataMap().putInt("WeatherId", weather);
         putDataMapReq.getDataMap().putLong("Time", System.currentTimeMillis());
         PutDataRequest putDataReq = putDataMapReq.asPutDataRequest();
@@ -46,13 +55,14 @@ public class WatchSync implements GoogleApiClient.ConnectionCallbacks, GoogleApi
 
     public void connect() {
         mGoogleApiClient.connect();
-
     }
 
     public void onConnected(Bundle bundle) {
         Log.d("WatchSync", "OnConnected()");
-        sendWatchData(20, 33, 800);
+        Wearable.MessageApi.addListener(mGoogleApiClient, this);
+        sendWatchData(mLowTemp, mHighTemp, mWeatherId);
     }
+
 
     public void onConnectionSuspended(int result) {
         Log.e("WatchSync", "OnConnectionSuspended()");
@@ -78,5 +88,11 @@ public class WatchSync implements GoogleApiClient.ConnectionCallbacks, GoogleApi
         }).start();
     }
 
-
+    @Override
+    public void onMessageReceived(MessageEvent messageEvent) {
+        Log.d("WatchSync", "onMessageReceived");
+        if( messageEvent.getPath().equalsIgnoreCase("dataRequest")) {
+            sendWatchData(mLowTemp, mHighTemp, mWeatherId);
+        }
+    }
 }

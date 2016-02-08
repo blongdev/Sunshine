@@ -278,6 +278,9 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
             // now we work exclusively in UTC
             dayTime = new Time();
 
+            long todayLow = -1;
+            long todayHigh = -1;
+            int todayWeather = -1;
             for(int i = 0; i < weatherArray.length(); i++) {
                 // These are the values that will be collected.
                 long dateTime;
@@ -330,6 +333,12 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                 weatherValues.put(WeatherContract.WeatherEntry.COLUMN_WEATHER_ID, weatherId);
 
                 cVVector.add(weatherValues);
+
+                if (i == 0) {
+                    todayLow = Math.round(low);
+                    todayHigh = Math.round(high);
+                    todayWeather = weatherId;
+                }
             }
 
             int inserted = 0;
@@ -347,7 +356,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                 updateWidgets();
                 updateMuzei();
                 notifyWeather();
-                updateWatch(10, 20, 305);
+                updateWatch(todayLow, todayHigh, todayWeather);
             }
             Log.d(LOG_TAG, "Sync Complete. " + cVVector.size() + " Inserted");
             setLocationStatus(getContext(), LOCATION_STATUS_OK);
@@ -358,8 +367,10 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
             setLocationStatus(getContext(), LOCATION_STATUS_SERVER_INVALID);
         }
     }
-    private void updateWatch(int low, int high, int weather) {
+
+    private void updateWatch(long low, long high, int weather) {
         WatchSync watchSync = new WatchSync(getContext());
+        watchSync.setValues(low, high, weather);
         watchSync.connect();
     }
 
